@@ -1,4 +1,5 @@
 # Kita
+<<<<<<< HEAD
 
 **Windows, as declared.**
 **把你的 Windows 变成一份可执行、可复现、可回滚的配置。**
@@ -181,3 +182,6 @@ Kita 读作 `/ˈkiːtə/`。取 “kit”（工具组合）与 “a”（一个�
 ---
 
 设计稿采用 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 授权；未来的代码计划采用 MIT OR Apache-2.0 双许可。
+=======
+A package manager running on Windows
+>>>>>>> 72007fbacd405f55b6e52caa3a3ddaa9f4f06e2e
