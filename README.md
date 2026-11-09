@@ -162,7 +162,7 @@ artifact 的 `url` 可以是仓库相对路径，也可以是 `file://` 绝对 U
 
 所有变更类命令（`install`、`add`、`remove`、`sync`、`update`）都会先输出 pacman 风格的事务摘要并请求确认；`--noconfirm` 可跳过确认。`--json` 输出始终是单一 JSON 文档，不包含任何装饰。
 
-`kita install <文件.kta>` 直接读取容器根目录的 `manifest.toml`，把 `payload/` 解包进 CAS 并激活，不需要先放入仓库；这类本地包不写入 `kita.toml`，属于一次性安装，后续 `kita sync` / `kita update` 会按清单将其移除。`.kta` 参数不能与仓库包名混用。
+`kita install <文件.kta>` 直接读取容器根目录的 `manifest.toml`，把 `payload/` 解包进 CAS 并激活，不需要先放入仓库；这类本地包不写入 `kita.toml`，属于一次性安装，后续 `kita sync` / `kita update` 会按清单将其移除。空目录中也能直接安装自包含的 `.kta`：没有 `kita.toml` 时按空项目处理且不写锁文件，只有容器声明依赖或需要解析其他仓库包时才要求配置仓库。`.kta` 参数不能与仓库包名混用；`.7z` / `.zip` 等压缩包会提示先打包成 `.kta`。
 
 ### 当前限制
 

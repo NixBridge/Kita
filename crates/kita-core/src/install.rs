@@ -215,10 +215,30 @@ pub fn install_artifact(
             &staging,
             artifact.strip_components(manifest.install_strip_components()),
         )?;
+        verify_bin_paths(manifest, &staging)?;
         store.import_directory(&staging)
     })();
     let _ = fs::remove_dir_all(&staging);
     result
+}
+
+/// 校验清单声明的每个可执行文件都存在于解包目录中。
+fn verify_bin_paths(manifest: &PackageManifest, directory: &Path) -> Result<()> {
+    for bin in &manifest.bins {
+        let relative = RelPath::parse(&bin.path)?;
+        let file = relative.join_under(directory);
+        if !file.is_file() {
+            return Err(KitaError::new(
+                "KITA-5002",
+                format!(
+                    "包 {} 缺少清单声明的可执行文件 `{}`（{}）",
+                    manifest.id, bin.name, bin.path
+                ),
+            )
+            .with_hint("检查安装产物或 `.kta` 的 payload/ 是否包含 [[bin]] 的 path"));
+        }
+    }
+    Ok(())
 }
 
 /// `.kta` 容器根目录中的包清单文件名。
@@ -227,7 +247,10 @@ const KTA_MANIFEST: &str = "manifest.toml";
 const KTA_PAYLOAD: &str = "payload";
 
 /// 从 `.kta` 容器中读取的包信息。
+#[derive(Clone, Debug)]
 pub struct KtaManifest {
+    /// 容器的绝对路径；再次解包时直接复用，避免重复读取与哈希。
+    pub path: PathBuf,
     pub manifest: PackageManifest,
     /// 容器内 `manifest.toml` 原始字节的 SHA-256。
     pub manifest_digest: Sha256,
@@ -272,6 +295,7 @@ pub fn read_kta_manifest(path: &Path) -> Result<KtaManifest> {
 
     let manifest = load_package(&bytes)?;
     Ok(KtaManifest {
+        path: path.to_path_buf(),
         manifest_digest: sha256_bytes(&bytes),
         manifest,
         container_digest,
@@ -279,14 +303,15 @@ pub fn read_kta_manifest(path: &Path) -> Result<KtaManifest> {
     })
 }
 
-/// 直接把 `.kta` 容器中的 `payload/` 解包进 CAS，返回文件树摘要。
-pub fn install_kta(
+/// 直接把已读取的 `.kta` 容器中的 `payload/` 解包进 CAS，返回文件树摘要。
+///
+/// 容器信息由调用方提供，避免整文件重复哈希。
+pub fn install_kta_from(
     kita_root: &Path,
     store: &Store,
-    path: &Path,
+    kta: &KtaManifest,
     target: &str,
 ) -> Result<Sha256> {
-    let kta = read_kta_manifest(path)?;
     if !matches!(&kta.manifest.install, InstallSpec::Portable { .. }) {
         return Err(KitaError::new(
             "KITA-8001",
@@ -297,7 +322,7 @@ pub fn install_kta(
         ));
     }
     kta.manifest.artifact_for(target).map_err(|error| {
-        error.with_hint(format!("本地容器 {} 不支持当前平台", path.display()))
+        error.with_hint(format!("本地容器 {} 不支持当前平台", kta.path.display()))
     })?;
 
     let temp_root = kita_root.join("tmp");
@@ -305,20 +330,21 @@ pub fn install_kta(
     let staging = temp_root.join(format!("install-{}", unique_suffix()));
     ensure_dir(&staging)?;
     let result = (|| {
-        let file = File::open(path).map_err(|error| {
+        let file = File::open(&kta.path).map_err(|error| {
             KitaError::io(
                 "KITA-5002",
-                format!("无法打开 .kta 容器 {}", path.display()),
+                format!("无法打开 .kta 容器 {}", kta.path.display()),
                 error,
             )
         })?;
         let mut archive = zip::ZipArchive::new(file).map_err(|error| {
             KitaError::new(
                 "KITA-5002",
-                format!(".kta 容器解析失败 {}：{error}", path.display()),
+                format!(".kta 容器解析失败 {}：{error}", kta.path.display()),
             )
         })?;
         extract_zip_prefix(&mut archive, &staging, KTA_PAYLOAD)?;
+        verify_bin_paths(&kta.manifest, &staging)?;
         store.import_directory(&staging)
     })();
     let _ = fs::remove_dir_all(&staging);

@@ -257,6 +257,11 @@ pub fn resolve_locked(
 
     let mut packages = BTreeMap::new();
     for locked in &lock.packages {
+        // 本地 `.kta` 包不来自仓库，锁里只保留其安装事实；
+        // 再次安装时由 SyncOptions.locals 显式重新注入。
+        if locked.source == "local" {
+            continue;
+        }
         let (manifest, manifest_digest) = repo.load_manifest(&locked.id, &locked.version)?;
         if manifest_digest != locked.manifest_digest {
             return Err(KitaError::new(

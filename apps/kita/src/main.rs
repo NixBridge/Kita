@@ -244,17 +244,28 @@ fn run(cli: Cli) -> Result<i32, KitaError> {
                 };
                 sync_with_confirmation(&ctx, options, noconfirm, json)
             } else if specs.iter().all(|spec| is_kta_path(spec)) {
+                let paths = specs
+                    .iter()
+                    .map(|spec| PathBuf::from(spec.as_str()))
+                    .collect::<Vec<_>>();
+                // 只读取/哈希容器一次，dry-run 预览与真实执行共用。
+                let locals = app::prepare_locals(&ctx, &paths)?;
                 let options = SyncOptions {
                     repository: repository.clone(),
                     locked: false,
                     dry_run: false,
                     ignore_lock: false,
-                    locals: specs
-                        .iter()
-                        .map(|spec| PathBuf::from(spec.as_str()))
-                        .collect(),
+                    locals,
                 };
                 sync_with_confirmation(&ctx, options, noconfirm, json)
+            } else if let Some(spec) = specs.iter().find(|spec| looks_like_archive(spec)) {
+                Err(KitaError::new(
+                    "KITA-1001",
+                    format!("`{spec}` 是压缩包，不能直接安装"),
+                )
+                .with_hint(
+                    "先打包成 .kta 容器（根目录 manifest.toml + payload/），再执行 `kita install <文件.kta>`",
+                ))
             } else if specs.iter().any(|spec| is_kta_path(spec)) {
                 Err(KitaError::new(
                     "KITA-1001",
@@ -868,7 +879,9 @@ fn sync_with_confirmation(
 
     ui::blank();
     ui::header("Synchronizing package databases");
-    ui::item("本地仓库已读取");
+    if preview.plan.project_manifest {
+        ui::item("本地仓库已读取");
+    }
     ui::header("Resolving package metadata");
     ui::item(&format!("目标平台：{}", preview.plan.platform));
 
@@ -879,9 +892,12 @@ fn sync_with_confirmation(
             return Ok(0);
         }
         print_downloads(&preview.plan);
-        ui::blank();
-        ui::header("Verifying package integrity");
-        ui::item("artifact 摘要校验通过");
+        // 只有确实需要从仓库获取 artifact 时才有摘要校验步骤可报告。
+        if !preview.plan.downloads.is_empty() {
+            ui::blank();
+            ui::header("Verifying package integrity");
+            ui::item("artifact 摘要校验通过");
+        }
     }
 
     let outcome = app::sync(ctx, &options)?;
@@ -942,7 +958,9 @@ fn apply_manifest_change(
 fn print_plan(plan: &Plan) {
     ui::blank();
     ui::header("Synchronizing package databases");
-    ui::item("本地仓库已读取");
+    if plan.project_manifest {
+        ui::item("本地仓库已读取");
+    }
     ui::header("Resolving package metadata");
     ui::item(&format!("目标平台：{}", plan.platform));
     if plan.requires_build {
@@ -973,12 +991,16 @@ fn print_transaction(plan: &Plan) {
                 (_, None, Some(from)) => from.to_string(),
                 _ => "-".to_string(),
             };
+            let size = change
+                .size
+                .map(ui::human_size)
+                .unwrap_or_else(|| size_label(plan, &change.id));
             vec![
                 change.id.clone(),
                 arch_label(&plan.platform),
                 version,
-                "local".to_string(),
-                size_label(plan, &change.id),
+                change.repository.clone(),
+                size,
             ]
         })
         .collect::<Vec<_>>();
@@ -988,13 +1010,17 @@ fn print_transaction(plan: &Plan) {
     );
 
     if plan.downloads.is_empty() {
-        ui::item("Total download size: 0 B（全部已缓存）");
+        if plan.changes.iter().any(|change| change.repository == "kta") {
+            ui::item("Total download size: 0 B（本地 .kta 容器）");
+        } else {
+            ui::item("Total download size: 0 B（全部已缓存）");
+        }
     } else {
         let total = plan.downloads.iter().map(|download| download.size).sum::<u64>();
         ui::item(&format!("Total download size: {}", ui::human_size(total)));
     }
     ui::item(&format!("Total packages: {}", plan.changes.len()));
-    if plan.manifest_changed {
+    if plan.project_manifest && plan.manifest_changed {
         ui::item("kita.toml 已变更，将重新生成 kita.lock");
     }
 }
@@ -1004,7 +1030,11 @@ fn print_downloads(plan: &Plan) {
     ui::blank();
     ui::header("Downloading packages");
     if plan.downloads.is_empty() {
-        ui::item("所有 artifact 已在本地缓存");
+        if plan.changes.iter().any(|change| change.repository == "kta") {
+            ui::item("无需下载：本地 .kta 直接解包，其余 artifact 已缓存");
+        } else {
+            ui::item("所有 artifact 已在本地缓存");
+        }
         return;
     }
     let total = plan.downloads.len();
@@ -1014,6 +1044,9 @@ fn print_downloads(plan: &Plan) {
             total,
             &format!("{}  {}", download.id, ui::human_size(download.size)),
         );
+    }
+    if plan.changes.iter().any(|change| change.repository == "kta") {
+        ui::item("本地 .kta 容器无需下载，直接解包安装");
     }
 }
 
@@ -1064,6 +1097,12 @@ fn report_sync(
         print_json(outcome)?;
         return Ok(0);
     }
+    if !outcome.plan.warnings.is_empty() {
+        ui::blank();
+        for warning in &outcome.plan.warnings {
+            ui::item(&format!("提示：{warning}"));
+        }
+    }
     if outcome.plan.requires_build {
         print_processing(&outcome.plan);
     } else {
@@ -1078,6 +1117,21 @@ fn report_sync(
 /// 判断一个 install 参数是否指向 `.kta` 容器文件。
 fn is_kta_path(spec: &str) -> bool {
     spec.to_ascii_lowercase().ends_with(".kta")
+}
+
+/// 判断参数是否像磁盘上的压缩包（而不是包 ID），用于给出可理解的提示。
+fn looks_like_archive(spec: &str) -> bool {
+    if is_kta_path(spec) {
+        return false;
+    }
+    const EXTS: [&str; 8] = [
+        ".zip", ".7z", ".rar", ".tar", ".tar.gz", ".tgz", ".gz", ".xz",
+    ];
+    let lower = spec.to_ascii_lowercase();
+    if EXTS.iter().any(|ext| lower.ends_with(ext)) {
+        return true;
+    }
+    Path::new(spec).is_file()
 }
 
 fn arch_label(platform: &str) -> String {

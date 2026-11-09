@@ -15,8 +15,8 @@ use crate::lock::{
     self, LockArtifact, LockFile, LockPackage, LOCK_SCHEMA, RESOLVER_VERSION,
 };
 use crate::manifest::{
-    add_packages, canonical_digest, load_project, parse_add_spec, remove_packages,
-    Artifact, InstallSpec, NormalizedProject, ResolvedRequest, Scope,
+    add_packages, canonical_digest, load_project, parse_add_spec, parse_project,
+    remove_packages, Artifact, InstallSpec, NormalizedProject, ResolvedRequest, Scope,
 };
 use crate::plan::{build_plan, Download, Plan};
 use crate::repository::Repository;
@@ -96,6 +96,26 @@ impl Context {
         };
         Repository::open(&path)
     }
+    /// 可选的仓库句柄：未配置仓库时返回 `None`，由调用方按需报错。
+    fn open_repository_optional(&self, override_path: Option<&Path>) -> Result<Option<Repository>> {
+        let path = match override_path {
+            Some(path) => path.to_path_buf(),
+            None => match settings::load(&self.root)?.repository {
+                Some(raw) => PathBuf::from(raw),
+                None => return Ok(None),
+            },
+        };
+        Ok(Some(Repository::open(&path)?))
+    }
+}
+
+/// 需要仓库时再报错，避免只是安装自包含 `.kta` 也强制配置仓库。
+fn require_repository(repo: Option<&Repository>) -> Result<&Repository> {
+    repo.ok_or_else(|| {
+        KitaError::new("KITA-4001", "尚未配置包仓库").with_hint(
+            "运行 `kita init --repository <本地仓库目录>`，或给命令传入 --repository",
+        )
+    })
 }
 
 #[derive(Serialize)]
@@ -144,8 +164,9 @@ pub struct SyncOptions {
     pub dry_run: bool,
     /// Re-resolve from the manifest even when a lock file exists.
     pub ignore_lock: bool,
-    /// 直接安装的 `.kta` 容器路径；这些包不写入 kita.toml。
-    pub locals: Vec<PathBuf>,
+    /// 已读取的 `.kta` 容器；这些包不写入 kita.toml。
+    /// 用 `prepare_locals` 读取一次，dry-run 与真实执行共用。
+    pub locals: Vec<install::KtaManifest>,
 }
 
 #[derive(Serialize)]
@@ -157,9 +178,33 @@ pub struct SyncOutcome {
     pub shim_warnings: Vec<String>,
 }
 
+/// 读取并校验 `.kta` 容器，供 `sync` 使用；同一容器只读取/哈希一次。
+pub fn prepare_locals(ctx: &Context, paths: &[PathBuf]) -> Result<Vec<install::KtaManifest>> {
+    paths
+        .iter()
+        .map(|raw| {
+            let path = if raw.is_absolute() {
+                raw.clone()
+            } else {
+                ctx.cwd.join(raw)
+            };
+            install::read_kta_manifest(&path)
+        })
+        .collect()
+}
+
 pub fn sync(ctx: &Context, options: &SyncOptions) -> Result<SyncOutcome> {
-    let project = load_project(&ctx.project_path())?;
-    let repo = ctx.open_repository(options.repository.as_deref())?;
+    // 没有 kita.toml 时，只有显式传入 `.kta` 才能继续：用空项目完成一次性安装。
+    let project_path = ctx.project_path();
+    let has_project = project_path.exists();
+    let project = if has_project {
+        load_project(&project_path)?
+    } else if !options.locals.is_empty() {
+        parse_project(DEFAULT_PROJECT.as_bytes())?
+    } else {
+        load_project(&project_path)?
+    };
+    let repo = ctx.open_repository_optional(options.repository.as_deref())?;
     let platform = util::current_target()?;
     if let Some(pinned) = &project.environment.platform {
         if pinned != &platform {
@@ -171,7 +216,12 @@ pub fn sync(ctx: &Context, options: &SyncOptions) -> Result<SyncOutcome> {
     }
 
     let manifest_digest = canonical_digest(&project)?;
-    let existing_lock = lock::read_optional(&ctx.lock_path())?;
+    // 没有 kita.toml 时不读写锁文件，避免在空目录留下无法解释的状态。
+    let existing_lock = if has_project {
+        lock::read_optional(&ctx.lock_path())?
+    } else {
+        None
+    };
     let lock = if options.ignore_lock {
         None
     } else {
@@ -180,7 +230,8 @@ pub fn sync(ctx: &Context, options: &SyncOptions) -> Result<SyncOutcome> {
     let mut warnings = Vec::new();
 
     let mut resolution = match &lock {
-        Some(lock) => match resolve_locked(&project, &repo, &platform, lock) {
+        Some(lock) => match resolve_locked(&project, require_repository(repo.as_ref())?, &platform, lock)
+        {
             Ok(resolution) => resolution,
             Err(error) if options.locked => return Err(error),
             Err(error) => {
@@ -188,7 +239,7 @@ pub fn sync(ctx: &Context, options: &SyncOptions) -> Result<SyncOutcome> {
                     "忽略现有 kita.lock：{}",
                     error.message
                 ));
-                resolve(&project, &repo, &platform)?
+                resolve(&project, require_repository(repo.as_ref())?, &platform)?
             }
         },
         None => {
@@ -198,19 +249,41 @@ pub fn sync(ctx: &Context, options: &SyncOptions) -> Result<SyncOutcome> {
                     "使用了 --locked，但当前目录没有 kita.lock",
                 ));
             }
-            resolve(&project, &repo, &platform)?
+            if project.packages.is_empty() {
+                // 只有本地 `.kta` 时无需访问仓库。
+                Resolution {
+                    packages: BTreeMap::new(),
+                }
+            } else {
+                resolve(&project, require_repository(repo.as_ref())?, &platform)?
+            }
         }
     };
 
     // 本地 .kta 容器作为一次性根包加入解析结果；依赖仍从仓库补齐。
-    let local_paths = merge_local_packages(
-        ctx,
+    let local_indexes = merge_local_packages(
         &project,
         &mut resolution,
         &options.locals,
-        &repo,
+        repo.as_ref(),
         &platform,
     )?;
+
+    // 锁文件里的本地包不会从仓库重建；本次没有重新传入容器就说明它将被移除。
+    if let Some(lock) = &existing_lock {
+        for locked in &lock.packages {
+            if locked.source != "local"
+                || local_indexes.contains_key(&locked.id)
+                || resolution.packages.contains_key(&locked.id)
+            {
+                continue;
+            }
+            warnings.push(format!(
+                "本地包 {} {} 来自 .kta，不在 kita.toml 中；如需保留请重新执行 `kita install <文件.kta>`",
+                locked.id, locked.version
+            ));
+        }
+    }
 
     for package in resolution.iter() {
         if !matches!(&package.manifest.install, InstallSpec::Portable { .. }) {
@@ -250,12 +323,13 @@ pub fn sync(ctx: &Context, options: &SyncOptions) -> Result<SyncOutcome> {
     let mut downloads = Vec::new();
 
     for package in resolution.iter() {
-        if let Some(path) = local_paths.get(&package.id) {
+        if let Some(index) = local_indexes.get(&package.id) {
             // 本地 .kta 不进入下载缓存；dry-run 时没有文件树，会触发一次重建计划。
             if options.dry_run {
                 continue;
             }
-            let tree = install::install_kta(&ctx.root, &store, path, &platform)?;
+            let tree =
+                install::install_kta_from(&ctx.root, &store, &options.locals[*index], &platform)?;
             trees.insert(package.id.clone(), tree);
             continue;
         }
@@ -306,7 +380,7 @@ pub fn sync(ctx: &Context, options: &SyncOptions) -> Result<SyncOutcome> {
                 let installed = install::install_artifact(
                     &ctx.root,
                     &store,
-                    &repo,
+                    require_repository(repo.as_ref())?,
                     &package.manifest,
                     &platform,
                 )?;
@@ -350,6 +424,7 @@ pub fn sync(ctx: &Context, options: &SyncOptions) -> Result<SyncOutcome> {
         &trees,
         downloads,
         manifest_digest,
+        has_project,
     );
     plan.warnings.splice(0..0, warnings);
     if !plan.requires_build {
@@ -422,43 +497,38 @@ pub fn sync(ctx: &Context, options: &SyncOptions) -> Result<SyncOutcome> {
         shim_warnings.extend(shims::install_shims(&ctx.root, current)?);
     }
 
-    let lock_file = make_lock(manifest_digest, &resolution, &trees, &platform)?;
-    lock::write_atomic(&ctx.lock_path(), &lock_file)?;
+    if has_project {
+        let lock_file = make_lock(manifest_digest, &resolution, &trees, &platform)?;
+        lock::write_atomic(&ctx.lock_path(), &lock_file)?;
+    }
 
     Ok(SyncOutcome {
         plan,
         generation: final_generation,
         built,
-        lock_written: true,
+        lock_written: has_project,
         shim_warnings,
     })
 }
 
-/// 读取本地 `.kta` 容器并把它们并入解析结果，返回 `包 ID → 容器绝对路径`。
+/// 把本地 `.kta` 容器并入解析结果，返回 `包 ID → locals 下标`。
 ///
 /// 本地包被当作一次性的根包：不写入 kita.toml，依赖仍从仓库解析补齐。
 fn merge_local_packages(
-    ctx: &Context,
     project: &NormalizedProject,
     resolution: &mut Resolution,
-    locals: &[PathBuf],
-    repo: &Repository,
+    locals: &[install::KtaManifest],
+    repo: Option<&Repository>,
     platform: &str,
-) -> Result<BTreeMap<PackageId, PathBuf>> {
-    let mut paths = BTreeMap::new();
+) -> Result<BTreeMap<PackageId, usize>> {
+    let mut indexes = BTreeMap::new();
     if locals.is_empty() {
-        return Ok(paths);
+        return Ok(indexes);
     }
 
     let mut dependencies: Vec<(PackageId, Requirement, bool)> = Vec::new();
-    for raw in locals {
-        let path = if raw.is_absolute() {
-            raw.clone()
-        } else {
-            ctx.cwd.join(raw)
-        };
-        let kta = install::read_kta_manifest(&path)?;
-        let manifest = kta.manifest;
+    for (index, kta) in locals.iter().enumerate() {
+        let manifest = &kta.manifest;
         if !matches!(&manifest.install, InstallSpec::Portable { .. }) {
             return Err(KitaError::new(
                 "KITA-8001",
@@ -471,7 +541,7 @@ fn merge_local_packages(
         manifest.artifact_for(platform).map_err(|error| {
             error.with_hint(format!(
                 "本地容器 {} 不支持当前平台",
-                path.display()
+                kta.path.display()
             ))
         })?;
 
@@ -483,9 +553,23 @@ fn merge_local_packages(
         dependencies.extend(specs);
 
         let id = manifest.id.clone();
+        if indexes.contains_key(&id) {
+            return Err(KitaError::new(
+                "KITA-1001",
+                format!("本地 .kta 中重复出现包 {id}"),
+            )
+            .with_hint("同一次安装不要传入同一个包的多个容器"));
+        }
+        if resolution.packages.contains_key(&id) {
+            return Err(KitaError::new(
+                "KITA-1001",
+                format!("{id} 已由 kita.toml 或依赖解析到，不能用 .kta 覆盖"),
+            )
+            .with_hint("先从 kita.toml 移除该包，或使用 `kita add` 安装仓库版本"));
+        }
         let artifact = Artifact {
             target: platform.to_string(),
-            url: path.to_string_lossy().to_string(),
+            url: kta.path.to_string_lossy().to_string(),
             sha256: kta.container_digest,
             size: kta.container_size,
             format: "kta".to_string(),
@@ -493,7 +577,7 @@ fn merge_local_packages(
             publisher: None,
             require_signature: None,
         };
-        paths.insert(id.clone(), path);
+        indexes.insert(id.clone(), index);
         resolution.packages.insert(
             id.clone(),
             ResolvedPackage {
@@ -504,7 +588,7 @@ fn merge_local_packages(
                 root: true,
                 bins: manifest.exposed_bins(),
                 manifest_digest: kta.manifest_digest,
-                manifest,
+                manifest: manifest.clone(),
                 artifact,
                 dependencies: dependency_ids,
             },
@@ -525,6 +609,8 @@ fn merge_local_packages(
             continue;
         }
 
+        // 只有本地包带依赖时才需要仓库。
+        let repo = require_repository(repo)?;
         let mut packages = BTreeMap::new();
         packages.insert(
             dep_id.clone(),
@@ -551,7 +637,7 @@ fn merge_local_packages(
         }
     }
 
-    Ok(paths)
+    Ok(indexes)
 }
 
 fn make_lock(

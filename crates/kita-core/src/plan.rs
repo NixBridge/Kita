@@ -15,6 +15,11 @@ pub struct PackageChange {
     pub action: String,
     pub from: Option<String>,
     pub to: Option<String>,
+    /// 事务表 Repository 列的显示值：仓库包为 `local`，本地容器为 `kta`。
+    pub repository: String,
+    /// 本地 `.kta` 的容器大小；仓库包的大小取自下载列表。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -32,6 +37,8 @@ pub struct Plan {
     pub changes: Vec<PackageChange>,
     pub downloads: Vec<Download>,
     pub manifest_changed: bool,
+    /// 当前目录是否存在 kita.toml；空目录安装 `.kta` 时为 false（不写锁文件）。
+    pub project_manifest: bool,
     pub requires_build: bool,
     pub warnings: Vec<String>,
 }
@@ -45,6 +52,7 @@ pub fn build_plan(
     trees: &BTreeMap<PackageId, Sha256>,
     downloads: Vec<Download>,
     manifest_digest: Sha256,
+    project_manifest: bool,
 ) -> Plan {
     let mut current_packages: BTreeMap<PackageId, (String, Sha256)> = BTreeMap::new();
     if let Some(current) = current {
@@ -59,12 +67,21 @@ pub fn build_plan(
     let mut changes = Vec::new();
     for package in resolution.iter() {
         let id = package.id.canonical();
+        let local = package.source == "local";
+        let repository = if local { "kta" } else { "local" }.to_string();
+        let size = if local {
+            Some(package.artifact.size)
+        } else {
+            None
+        };
         match current_packages.remove(&package.id) {
             None => changes.push(PackageChange {
                 id,
                 action: "add".to_string(),
                 from: None,
                 to: Some(package.version.to_string()),
+                repository,
+                size,
             }),
             Some((old_version, old_tree)) => {
                 let new_version = package.version.to_string();
@@ -88,6 +105,8 @@ pub fn build_plan(
                     action: action.to_string(),
                     from: Some(old_version),
                     to: Some(new_version),
+                    repository,
+                    size,
                 });
             }
         }
@@ -98,6 +117,8 @@ pub fn build_plan(
             action: "remove".to_string(),
             from: Some(version),
             to: None,
+            repository: "local".to_string(),
+            size: None,
         });
     }
     changes.sort_by(|left, right| left.id.cmp(&right.id));
@@ -122,6 +143,7 @@ pub fn build_plan(
         changes,
         downloads,
         manifest_changed,
+        project_manifest,
         requires_build,
         warnings,
     }

@@ -52,7 +52,7 @@ kita <command> [options]
   version           版本信息
 ```
 
-`install` 有两种形态：有包参数时等价于 `add`（修改清单 + 安装）；无参数时等价于 `sync`（严格按清单/锁收敛）。参数是 `.kta` 文件路径时，直接读取容器内的 `manifest.toml` 与 `payload/` 激活该包，不修改 `kita.toml`，属于一次性安装；`.kta` 参数不能与包名混用。`uninstall` 是 `remove` 的别名。它们不引入第二套状态语义。
+`install` 有两种形态：有包参数时等价于 `add`（修改清单 + 安装）；无参数时等价于 `sync`（严格按清单/锁收敛）。参数是 `.kta` 文件路径时，直接读取容器内的 `manifest.toml` 与 `payload/` 激活该包，不修改 `kita.toml`，属于一次性安装；`.kta` 参数不能与包名混用。空目录（没有 `kita.toml`）也能安装自包含的 `.kta`：按空项目处理且不写锁文件，只有容器声明依赖时才要求配置仓库；`.7z` / `.zip` 等压缩包会提示先打包成 `.kta`。`uninstall` 是 `remove` 的别名。它们不引入第二套状态语义。
 
 ## 2. 全局选项
 
