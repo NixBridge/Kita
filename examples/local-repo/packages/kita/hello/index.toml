@@ -1,0 +1,8 @@
+schema = 1
+id = "kita/hello"
+
+[[version]]
+version = "1.0.0"
+manifest = "packages/kita/hello/1.0.0/manifest.toml"
+manifest_sha256 = "f6a7cf5b7bbea31e730a7b0d98f80a7fcc610bdadf8d91958555c661dce90b7d"
+targets = ["x86_64-pc-windows-msvc"]

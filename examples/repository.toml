@@ -1,0 +1,28 @@
+# 示例仓库元数据
+# 公钥、指纹与 URL 为占位值。
+
+schema = 1
+id = "kita"
+name = "Kita Official"
+description = "Kita 官方公共仓库"
+base_url = "https://repo.kita.dev/v1"
+generation = 2026110901
+issued_at = "2026-11-09T00:00:00Z"
+expires_at = "2026-12-09T00:00:00Z"
+
+[[key]]
+id = "kita-repo-2026"
+algorithm = "ed25519"
+public_key = "RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3"
+roles = ["package-index", "catalog", "revocations"]
+not_before = "2026-01-01T00:00:00Z"
+not_after = "2027-01-01T00:00:00Z"
+
+[[mirror]]
+url = "https://mirror.example.net/kita/v1"
+priority = 10
+
+[limits]
+max_catalog_bytes = 33_554_432
+max_index_bytes = 8_388_608
+max_manifest_bytes = 1_048_576

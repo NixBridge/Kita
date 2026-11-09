@@ -1,0 +1,5 @@
+schema = 1
+id = "local"
+name = "Kita Local Examples"
+description = "用于试用本地 portable 安装的示例仓库"
+kind = "local"

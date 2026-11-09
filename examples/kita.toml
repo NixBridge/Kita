@@ -1,0 +1,22 @@
+# 示例项目清单
+# 这是 Kita 的“意图”层；具体版本与哈希见 kita.lock。
+
+schema = 1
+
+[environment]
+name = "dev"
+scope = "user"
+platform = "x86_64-pc-windows-msvc"
+
+[packages]
+ripgrep = "14.1"
+fd = "10"
+bat = "0.24"
+node = "22"
+
+# 带选项的包
+"kita/cmake" = { version = ">=3.28, <4" }
+
+[env]
+EDITOR = "hx"
+PAGER = "bat"

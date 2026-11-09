@@ -1,0 +1,8 @@
+schema = 1
+id = "kita/fastfetch"
+
+[[version]]
+version = "2.64.2"
+manifest = "packages/kita/fastfetch/2.64.2/manifest.toml"
+manifest_sha256 = "e0fc30755d28c1c15f614853d4e6cc7d7d4b4c51f6e1cf1857a92a280afb7283"
+targets = ["x86_64-pc-windows-msvc"]

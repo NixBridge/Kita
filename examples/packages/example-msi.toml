@@ -1,0 +1,47 @@
+# 示例原生 MSI 包清单
+# 哈希、GUID、发布者均为占位值。
+
+schema = 1
+
+id = "example/contoso-agent"
+version = "2.4.0"
+summary = "Contoso 端点代理"
+license = "Proprietary"
+homepage = "https://example.com/contoso-agent"
+upstream = "https://example.com/contoso-agent"
+
+[platform]
+os = ">=10.0.19041"
+arch = ["x86_64"]
+
+[install]
+mode = "native"
+kind = "msi"
+scope = "machine"
+upgrade_code = "{00000000-0000-0000-0000-000000000000}"
+properties = { ALLUSERS = "1", MSIFASTINSTALL = "7" }
+
+[capabilities]
+elevation = "required"
+network = false
+registry = true
+services = false
+
+[[artifact]]
+target = "x86_64-pc-windows-msvc"
+url = "https://example.com/downloads/contoso-agent-2.4.0-x64.msi"
+sha256 = "2222222222222222222222222222222222222222222222222222222222222222"
+size = 24_576_000
+format = "msi"
+publisher = "CN=Contoso Ltd, O=Contoso Ltd, C=US"
+require_signature = true
+
+[[bin]]
+name = "contoso"
+path = "${INSTALL_DIR}\\contoso.exe"
+kind = "console"
+
+[[bin]]
+name = "contoso-gui"
+path = "${INSTALL_DIR}\\contoso-gui.exe"
+kind = "gui"

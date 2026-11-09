@@ -1,0 +1,33 @@
+schema = 1
+
+id = "kita/hello"
+version = "1.0.0"
+summary = "Kita 本地示例包"
+description = "一个用 .cmd 脚本演示 portable 安装、shim 与工具环境变量的最小包。"
+license = "MIT"
+homepage = "https://example.com/kita-hello"
+
+[platform]
+arch = ["x86_64"]
+
+[install]
+mode = "portable"
+strip_components = 1
+
+[capabilities]
+elevation = "never"
+
+[[artifact]]
+target = "x86_64-pc-windows-msvc"
+url = "blobs/hello-1.0.0.zip"
+sha256 = "8c68be3313c959a77385bf6054b90172299896d89a6788819abe9e35e6a864c6"
+size = 192
+format = "zip"
+
+[[bin]]
+name = "hello"
+path = "hello.cmd"
+kind = "console"
+
+[env]
+GREETING = "hello from ${KITA_PACKAGE}"

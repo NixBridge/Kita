@@ -1,0 +1,48 @@
+# 示例锁文件（供格式评审）
+# 节选：只展示 3 个包，不对应完整的示例清单。
+# 由 `kita lock` 生成，请勿手工编辑。
+# 哈希均为占位值；真实锁文件使用完整 SHA-256。
+
+schema = 1
+resolver = "1"
+platform = "x86_64-pc-windows-msvc"
+manifest = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[[package]]
+id = "kita/bat"
+version = "0.24.0"
+source = "kita"
+scope = "user"
+root = true
+activation = "shim"
+artifact = { target = "x86_64-pc-windows-msvc", sha256 = "1111111111111111111111111111111111111111111111111111111111111111", size = 3_112_345 }
+tree = "2222222222222222222222222222222222222222222222222222222222222222"
+manifest_digest = "3333333333333333333333333333333333333333333333333333333333333333"
+bins = ["bat"]
+dependencies = []
+
+[[package]]
+id = "kita/fd"
+version = "10.2.0"
+source = "kita"
+scope = "user"
+root = true
+activation = "shim"
+artifact = { target = "x86_64-pc-windows-msvc", sha256 = "4444444444444444444444444444444444444444444444444444444444444444", size = 2_987_654 }
+tree = "5555555555555555555555555555555555555555555555555555555555555555"
+manifest_digest = "6666666666666666666666666666666666666666666666666666666666666666"
+bins = ["fd", "fdx"]
+dependencies = []
+
+[[package]]
+id = "kita/ripgrep"
+version = "14.1.1"
+source = "kita"
+scope = "user"
+root = true
+activation = "shim"
+artifact = { target = "x86_64-pc-windows-msvc", sha256 = "7777777777777777777777777777777777777777777777777777777777777777", size = 3_045_678 }
+tree = "8888888888888888888888888888888888888888888888888888888888888888"
+manifest_digest = "9999999999999999999999999999999999999999999999999999999999999999"
+bins = ["rg", "ripgrep"]
+dependencies = []

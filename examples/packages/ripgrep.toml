@@ -1,0 +1,53 @@
+# 示例 portable 包清单
+# 哈希为占位值，仅展示格式；真实发布必须使用实际 SHA-256。
+
+schema = 1
+
+id = "kita/ripgrep"
+version = "14.1.1"
+summary = "面向行的递归搜索工具"
+description = "ripgrep 递归搜索目录中的正则表达式，默认尊重 .gitignore。"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/BurntSushi/ripgrep"
+upstream = "https://github.com/BurntSushi/ripgrep"
+
+[platform]
+os = ">=10.0.19041"
+arch = ["x86_64", "aarch64"]
+
+[install]
+mode = "portable"
+mutable = false
+
+[capabilities]
+elevation = "never"
+network = false
+registry = false
+services = false
+
+[[artifact]]
+target = "x86_64-pc-windows-msvc"
+url = "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-pc-windows-msvc.zip"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size = 3_045_678
+format = "zip"
+strip_components = 1
+
+[[artifact]]
+target = "aarch64-pc-windows-msvc"
+url = "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-aarch64-pc-windows-msvc.zip"
+sha256 = "1111111111111111111111111111111111111111111111111111111111111111"
+size = 2_987_654
+format = "zip"
+strip_components = 1
+
+[[bin]]
+name = "rg"
+path = "rg.exe"
+kind = "console"
+aliases = ["ripgrep"]
+
+[[bin]]
+name = "rga"
+path = "rga.exe"
+kind = "console"

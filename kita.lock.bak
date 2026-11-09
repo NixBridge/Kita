@@ -1,0 +1,42 @@
+# 由 Kita 生成；请勿手工编辑。
+schema = 1
+resolver = "1"
+platform = "x86_64-pc-windows-msvc"
+manifest = "45ee4480b6ca0183811cf9c5e1dbe6415d233f9a1646ba9d370e6f8ce164e11c"
+
+[[package]]
+id = "kita/fastfetch"
+version = "2.64.2"
+source = "kita"
+scope = "user"
+root = true
+activation = "shim"
+tree = "984809c5930df65d43c024d9471e3246cad1ebb57fb585e8be874841ea7ffc66"
+manifest_digest = "e0fc30755d28c1c15f614853d4e6cc7d7d4b4c51f6e1cf1857a92a280afb7283"
+bins = [
+    "fastfetch",
+    "flashfetch",
+]
+dependencies = []
+
+[package.artifact]
+target = "x86_64-pc-windows-msvc"
+sha256 = "2b6a036c2eaec2403c8bbdfefdb0b8ce21683a5f525c93cb6d566a4a7d4b2952"
+size = 5444644
+
+[[package]]
+id = "kita/hello"
+version = "1"
+source = "kita"
+scope = "user"
+root = true
+activation = "shim"
+tree = "86f89b02a974cc9067015977fc20f53d9820529c680f92f2f3960b1a45fc7e41"
+manifest_digest = "f6a7cf5b7bbea31e730a7b0d98f80a7fcc610bdadf8d91958555c661dce90b7d"
+bins = ["hello"]
+dependencies = []
+
+[package.artifact]
+target = "x86_64-pc-windows-msvc"
+sha256 = "8c68be3313c959a77385bf6054b90172299896d89a6788819abe9e35e6a864c6"
+size = 192

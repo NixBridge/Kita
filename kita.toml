@@ -1,0 +1,9 @@
+schema = 1
+
+[environment]
+name = "default"
+scope = "user"
+
+[packages]
+"kita/fastfetch" = "*"
+"kita/hello" = "*"

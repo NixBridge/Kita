@@ -1,0 +1,19 @@
+[package]
+name = "kita-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+sha2.workspace = true
+hex.workspace = true
+zip.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
